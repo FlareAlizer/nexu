@@ -1,0 +1,79 @@
+# CI/CD: push в main → тесты → сборка образа в GHCR → деплой на VPS по SSH.
+#
+# Деплой включается репозиторной переменной DEPLOY_ENABLED=true (Settings → Variables)
+# и требует секретов VPS_HOST, VPS_USER, VPS_SSH_KEY. Пока VPS не куплен —
+# переменной нет, job деплоя пропускается, CI остаётся зелёным.
+name: deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: cd backend && npm ci && npm test
+      - run: cd frontend && npm ci && npm run build
+
+  build:
+    needs: test
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions: { packages: write, contents: read }
+    steps:
+      - uses: actions/checkout@v4
+      # GHCR не принимает заглавные буквы в имени образа
+      - run: echo "OWNER=${GITHUB_REPOSITORY_OWNER,,}" >> $GITHUB_ENV
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: backend
+          push: true
+          # sha-тег — чтобы можно было откатиться на предыдущий образ
+          tags: |
+            ghcr.io/${{ env.OWNER }}/nexu-backend:latest
+            ghcr.io/${{ env.OWNER }}/nexu-backend:${{ github.sha }}
+
+  deploy:
+    needs: build
+    if: vars.DEPLOY_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      # Собранный фронт кладём на сервер + перезапускаем compose
+      - run: cd frontend && npm ci && npm run build
+        env:
+          VITE_SENTRY_DSN: ${{ secrets.VITE_SENTRY_DSN }}
+          VITE_TELEGRAM_BOT_USERNAME: ${{ vars.TELEGRAM_BOT_USERNAME }}
+      - name: Deploy over SSH
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: "frontend/dist/*"
+          target: "/opt/nexu/frontend-dist"
+          strip_components: 2
+      - name: Restart services
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            cd /opt/nexu
+            docker compose pull api
+            docker compose up -d
+            # миграции накатывает сам контейнер при старте (CMD в backend/Dockerfile)

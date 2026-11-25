@@ -1,0 +1,11 @@
+# Заменить DOMAIN на купленный домен. HTTPS (Let's Encrypt) — автоматически.
+DOMAIN {
+	handle /api/* {
+		reverse_proxy api:8000
+	}
+	handle {
+		root * /srv/www
+		try_files {path} /index.html
+		file_server
+	}
+}

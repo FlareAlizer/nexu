@@ -1,0 +1,16 @@
+# Локальная разработка: только Postgres. API и фронт — npm run dev на хосте.
+# Запуск: docker compose -f docker-compose.dev.yml up -d
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    ports: ["5432:5432"]
+    environment:
+      POSTGRES_USER: nexu
+      POSTGRES_DB: nexu
+      POSTGRES_PASSWORD: nexu # только для локалки; прод-пароль в .env на сервере
+    volumes:
+      - pgdata_dev:/var/lib/postgresql/data
+
+volumes:
+  pgdata_dev:

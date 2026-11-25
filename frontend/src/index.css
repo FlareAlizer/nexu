@@ -1,0 +1,184 @@
+@import "@fontsource-variable/onest/index.css";
+@import "@fontsource-variable/exo-2/index.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Токены оформления. Цвета — тройками RGB, чтобы Tailwind подставлял прозрачность. */
+:root {
+  /* фон: от самого тёмного к приподнятым панелям */
+  --c-void: 5 7 13;
+  --c-space: 9 13 23;
+  --c-panel: 15 21 35;
+  --c-raised: 23 31 50;
+  --c-line: 46 60 88;
+  /* текст */
+  --c-ink: 226 232 243;
+  --c-ink-soft: 176 188 209;
+  --c-ink-mute: 134 148 174;
+  /* акценты: жёлтый заголовков, голубой интерактива, статусы */
+  --c-crawl: 229 196 92;
+  --c-holo: 116 196 232;
+  --c-good: 110 207 160;
+  --c-bad: 236 118 124;
+  --c-warn: 236 176 96;
+
+  color-scheme: dark;
+}
+
+/* Шрифт ≥16px на мобайле (п.4.3); Onest как аналог Helvetica Neue (п.6.1) */
+html {
+  font-size: 16px;
+  font-family: "Onest Variable", "Helvetica Neue", Arial, sans-serif;
+  background: rgb(var(--c-void));
+  color: rgb(var(--c-ink));
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  min-height: 100vh;
+  /* слабая дымка поверх звёзд: холодная сверху, тёплая снизу справа */
+  background:
+    radial-gradient(90rem 40rem at 50% -10rem, rgb(52 84 140 / 0.2), transparent 70%),
+    radial-gradient(50rem 30rem at 100% 100%, rgb(96 62 128 / 0.1), transparent 70%);
+  background-attachment: fixed;
+  line-height: 1.5;
+}
+
+:focus-visible {
+  outline: 2px solid rgb(var(--c-holo));
+  outline-offset: 2px;
+}
+
+::selection {
+  background: rgb(var(--c-holo) / 0.3);
+}
+
+@layer components {
+  /* Панель со срезанными углами. Рамку рисует ::before, потому что clip-path срезает border. */
+  .hud {
+    --cut: 14px;
+    --hud-bg: rgb(var(--c-panel) / 0.9);
+    --hud-line: rgb(var(--c-line));
+    position: relative;
+    background: var(--hud-bg);
+    clip-path: polygon(
+      var(--cut) 0,
+      100% 0,
+      100% calc(100% - var(--cut)),
+      calc(100% - var(--cut)) 100%,
+      0 100%,
+      0 var(--cut)
+    );
+  }
+  .hud::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: var(--hud-line);
+    clip-path: polygon(
+      evenodd,
+      var(--cut) 0,
+      100% 0,
+      100% calc(100% - var(--cut)),
+      calc(100% - var(--cut)) 100%,
+      0 100%,
+      0 var(--cut),
+      var(--cut) 0,
+      calc(var(--cut) + 0.4px) 1px,
+      1px calc(var(--cut) + 0.4px),
+      1px calc(100% - 1px),
+      calc(100% - var(--cut) - 0.4px) calc(100% - 1px),
+      calc(100% - 1px) calc(100% - var(--cut) - 0.4px),
+      calc(100% - 1px) 1px,
+      calc(var(--cut) + 0.4px) 1px
+    );
+  }
+  .hud-holo { --hud-line: rgb(var(--c-holo) / 0.45); }
+  .hud-warn { --hud-line: rgb(var(--c-warn) / 0.5); --hud-bg: rgb(38 30 20 / 0.92); }
+  .hud-good { --hud-line: rgb(var(--c-good) / 0.45); }
+  .hud-bad { --hud-line: rgb(var(--c-bad) / 0.5); }
+
+  /* Подпись раздела: капс, разрядка, шрифт заголовков */
+  .hud-label {
+    font-family: "Exo 2 Variable", "Onest Variable", Arial, sans-serif;
+    font-size: 0.8125rem;
+    line-height: 1.2;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: rgb(var(--c-ink-mute));
+  }
+
+  /* Поля ввода: одна база для input, textarea, select */
+  .field {
+    width: 100%;
+    min-height: 44px;
+    border-radius: 8px;
+    border: 1px solid rgb(var(--c-line));
+    background: rgb(var(--c-space) / 0.9);
+    color: rgb(var(--c-ink));
+    padding: 0.625rem 0.75rem;
+    font-size: 1rem;
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+  .field::placeholder { color: rgb(var(--c-ink-mute)); }
+  .field:hover { border-color: rgb(var(--c-holo) / 0.5); }
+  .field:focus-visible {
+    outline: none;
+    border-color: rgb(var(--c-holo));
+    box-shadow: 0 0 0 3px rgb(var(--c-holo) / 0.22);
+  }
+  .field:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .link {
+    color: rgb(var(--c-holo));
+    text-decoration: underline;
+    text-decoration-color: rgb(var(--c-holo) / 0.4);
+    text-underline-offset: 3px;
+    border-radius: 4px;
+  }
+  .link:hover { text-decoration-color: currentColor; }
+}
+
+/* Rich text урока (COURSE-03): preflight Tailwind сбрасывает стили тегов — возвращаем базовые */
+.rich-text { color: rgb(var(--c-ink)); overflow-wrap: anywhere; }
+.rich-text h1 { font-size: 1.5rem; font-weight: 700; margin: 1.25rem 0 0.5rem; }
+.rich-text h2 { font-size: 1.25rem; font-weight: 700; margin: 1.25rem 0 0.5rem; }
+.rich-text h3 { font-size: 1.1rem; font-weight: 600; margin: 1rem 0 0.5rem; }
+.rich-text > :first-child { margin-top: 0; }
+.rich-text > :last-child { margin-bottom: 0; }
+.rich-text p { margin: 0.625rem 0; line-height: 1.65; }
+.rich-text ul { list-style: disc; padding-left: 1.5rem; margin: 0.625rem 0; }
+.rich-text ol { list-style: decimal; padding-left: 1.5rem; margin: 0.625rem 0; }
+.rich-text li { margin: 0.25rem 0; line-height: 1.6; }
+.rich-text li::marker { color: rgb(var(--c-holo)); }
+.rich-text a { text-decoration: underline; text-underline-offset: 3px; color: rgb(var(--c-holo)); }
+.rich-text strong { font-weight: 700; color: rgb(var(--c-crawl)); }
+.rich-text blockquote { border-left: 2px solid rgb(var(--c-holo) / 0.6); padding-left: 0.875rem; color: rgb(var(--c-ink-soft)); margin: 0.75rem 0; }
+.rich-text code { font-family: ui-monospace, Consolas, monospace; font-size: 0.9em; background: rgb(var(--c-raised)); padding: 0.1rem 0.35rem; border-radius: 4px; }
+
+/* Нативные radio/checkbox: крупнее и в цвет интерфейса */
+input[type="radio"],
+input[type="checkbox"] {
+  width: 1.25rem;
+  height: 1.25rem;
+  flex: none;
+  accent-color: rgb(var(--c-holo));
+}
+
+dialog::backdrop {
+  background: rgb(var(--c-void) / 0.72);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

@@ -1,0 +1,278 @@
+// Схема БД по п.5.2 ТЗ v1.0. Чат исключён из MVP (чат потока — в Telegram).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  STUDENT
+  TEACHER // преподаватель + куратор (одна роль по ТЗ 2.1)
+  ADMIN
+}
+
+enum SubmissionStatus {
+  PENDING // на проверке
+  ACCEPTED // принято
+  NEEDS_REVISION // на доработке
+}
+
+enum BlockType {
+  VIDEO
+  TEXT
+  PDF
+}
+
+enum QuestionType {
+  SINGLE // radio
+  MULTIPLE // checkbox
+  OPEN // развёрнутый текст
+}
+
+model User {
+  id           Int       @id @default(autoincrement())
+  telegramId   BigInt?   @unique @map("telegram_id")
+  tgUsername   String?   @map("tg_username")
+  email        String?   @unique
+  passwordHash String?   @map("password_hash") // bcrypt cost 12, резервный вход (AUTH-02)
+  name         String
+  role         Role      @default(STUDENT)
+  isBlocked    Boolean   @default(false) @map("is_blocked")
+  notifyMuted  Boolean   @default(false) @map("notify_muted") // /mute в боте (NOTIF-04)
+  lastSeenAt   DateTime? @map("last_seen_at") // «не заходил 3+ дня» (TEACH-04)
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  cohorts       CohortMember[]
+  submissions   TaskSubmission[]
+  comments      TaskComment[]
+  progress      LessonProgress[]
+  xpLog         XpLog[]
+  attempts      TestAttempt[]
+  notifications NotificationLog[]
+
+  @@map("users")
+}
+
+model Course {
+  id          Int      @id @default(autoincrement())
+  title       String
+  description String   @default("")
+  coverUrl    String?  @map("cover_url")
+  isPublished Boolean  @default(false) @map("is_published")
+  modules     Module[]
+  cohorts     Cohort[]
+
+  @@map("courses")
+}
+
+model Module {
+  id         Int      @id @default(autoincrement())
+  courseId   Int      @map("course_id")
+  title      String
+  orderIndex Int      @default(0) @map("order_index")
+  course     Course   @relation(fields: [courseId], references: [id])
+  lessons    Lesson[]
+
+  // Postgres не индексирует FK сам; выборки структуры курса идут по этим полям (п.4.1: API ≤300 мс)
+  @@index([courseId])
+  @@map("modules")
+}
+
+model Lesson {
+  id         Int              @id @default(autoincrement())
+  moduleId   Int              @map("module_id")
+  title      String
+  orderIndex Int              @default(0) @map("order_index")
+  module     Module           @relation(fields: [moduleId], references: [id])
+  blocks     LessonBlock[]
+  tasks      Task[]
+  tests      Test[]
+  progress   LessonProgress[]
+
+  @@index([moduleId])
+  @@map("lessons")
+}
+
+// Блоки контента урока в произвольном порядке (COURSE-03)
+model LessonBlock {
+  id         Int       @id @default(autoincrement())
+  lessonId   Int       @map("lesson_id")
+  type       BlockType
+  content    String // video: kinescope_id; text: rich text (html/md); pdf: s3-ключ
+  orderIndex Int       @default(0) @map("order_index")
+  lesson     Lesson    @relation(fields: [lessonId], references: [id])
+
+  @@index([lessonId])
+  @@map("lesson_blocks")
+}
+
+model Task {
+  id          Int              @id @default(autoincrement())
+  lessonId    Int              @map("lesson_id")
+  title       String
+  description String
+  deadline    DateTime?
+  lesson      Lesson           @relation(fields: [lessonId], references: [id])
+  submissions TaskSubmission[]
+
+  @@index([lessonId])
+  @@map("tasks")
+}
+
+// Версионируется: пересдача = новая запись с version+1 (TASK-05)
+model TaskSubmission {
+  id        Int              @id @default(autoincrement())
+  taskId    Int              @map("task_id")
+  userId    Int              @map("user_id")
+  fileUrl   String?          @map("file_url") // s3-ключ; signed URL при выдаче
+  text      String? // или текст прямо в форме (TASK-02)
+  status    SubmissionStatus @default(PENDING)
+  version   Int              @default(1)
+  createdAt DateTime         @default(now()) @map("created_at")
+  task      Task             @relation(fields: [taskId], references: [id])
+  user      User             @relation(fields: [userId], references: [id])
+  comments  TaskComment[]
+
+  @@unique([taskId, userId, version]) // защита от гонки двойной отправки (TASK-05)
+  @@index([taskId, status]) // очередь проверки (TEACH-01)
+  @@index([userId])
+  @@map("task_submissions")
+}
+
+model TaskComment {
+  id           Int            @id @default(autoincrement())
+  submissionId Int            @map("submission_id")
+  authorId     Int            @map("author_id")
+  content      String
+  createdAt    DateTime       @default(now()) @map("created_at")
+  submission   TaskSubmission @relation(fields: [submissionId], references: [id])
+  author       User           @relation(fields: [authorId], references: [id])
+
+  @@index([submissionId])
+  @@map("task_comments")
+}
+
+model Test {
+  id        Int            @id @default(autoincrement())
+  lessonId  Int            @map("lesson_id")
+  title     String
+  lesson    Lesson         @relation(fields: [lessonId], references: [id])
+  questions TestQuestion[]
+  attempts  TestAttempt[]
+
+  @@index([lessonId])
+  @@map("tests")
+}
+
+model TestQuestion {
+  id          Int          @id @default(autoincrement())
+  testId      Int          @map("test_id")
+  type        QuestionType
+  text        String
+  explanation String       @default("") // объяснение для немедленного фидбэка (TEST-02)
+  orderIndex  Int          @default(0) @map("order_index")
+  test        Test         @relation(fields: [testId], references: [id])
+  answers     TestAnswer[]
+
+  @@index([testId])
+  @@map("test_questions")
+}
+
+model TestAnswer {
+  id         Int          @id @default(autoincrement())
+  questionId Int          @map("question_id")
+  text       String
+  isCorrect  Boolean      @default(false) @map("is_correct")
+  question   TestQuestion @relation(fields: [questionId], references: [id])
+
+  @@index([questionId])
+  @@map("test_answers")
+}
+
+model TestAttempt {
+  id         Int       @id @default(autoincrement())
+  testId     Int       @map("test_id")
+  userId     Int       @map("user_id")
+  answers    Json // {questionId: [answerId,...] | text}
+  score      Int?
+  maxScore   Int?      @map("max_score")
+  finishedAt DateTime? @map("finished_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  test       Test      @relation(fields: [testId], references: [id])
+  user       User      @relation(fields: [userId], references: [id])
+
+  @@index([testId, userId])
+  @@map("test_attempts")
+}
+
+model LessonProgress {
+  id              Int     @id @default(autoincrement())
+  lessonId        Int     @map("lesson_id")
+  userId          Int     @map("user_id")
+  videoWatchedPct Int     @default(0) @map("video_watched_pct") // урок = просмотрен при 80%+
+  videoPositionS  Int     @default(0) @map("video_position_s") // запоминаем позицию
+  isCompleted     Boolean @default(false) @map("is_completed")
+  lesson          Lesson  @relation(fields: [lessonId], references: [id])
+  user            User    @relation(fields: [userId], references: [id])
+
+  @@unique([lessonId, userId])
+  @@index([userId]) // прогресс ученика по всем урокам (кабинет, п.3.8)
+  @@map("lesson_progress")
+}
+
+// Журнал XP (п.3.6): баланс = SUM(amount)
+model XpLog {
+  id        Int      @id @default(autoincrement())
+  userId    Int      @map("user_id")
+  amount    Int
+  reason    String // lesson_watched | task_submitted | task_accepted | test_passed | test_80 | module_completed
+  refId     Int?     @map("ref_id") // id урока/задания/теста — для идемпотентности
+  createdAt DateTime @default(now()) @map("created_at")
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@unique([userId, reason, refId]) // XP за одно действие не начисляется дважды
+  @@map("xp_log")
+}
+
+// Лог отправленных уведомлений: unique не даёт отправить одно и то же дважды
+// (например, напоминание о дедлайне NOTIF-03 при ежечасном джобе)
+model NotificationLog {
+  id        Int      @id @default(autoincrement())
+  userId    Int      @map("user_id")
+  kind      String // deadline_48h | ...
+  refId     Int?     @map("ref_id") // id задания/урока
+  createdAt DateTime @default(now()) @map("created_at")
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@unique([userId, kind, refId])
+  @@map("notification_log")
+}
+
+model Cohort {
+  id        Int            @id @default(autoincrement())
+  courseId  Int            @map("course_id")
+  title     String
+  startDate DateTime       @map("start_date")
+  endDate   DateTime?      @map("end_date")
+  tgChatUrl String?        @map("tg_chat_url") // ссылка на ТГ-чат потока (чат в MVP — в Telegram)
+  course    Course         @relation(fields: [courseId], references: [id])
+  members   CohortMember[]
+
+  @@index([courseId])
+  @@map("cohorts")
+}
+
+model CohortMember {
+  cohortId Int    @map("cohort_id")
+  userId   Int    @map("user_id")
+  cohort   Cohort @relation(fields: [cohortId], references: [id])
+  user     User   @relation(fields: [userId], references: [id])
+
+  @@id([cohortId, userId])
+  @@index([userId]) // «мой курс»: поиск потоков по ученику (COURSE-05)
+  @@map("cohort_members")
+}
